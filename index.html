@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Events in der Umgebung</title>
+<style>
+:root{--bg:#f6f6f3;--card:#fff;--text:#1d1d1b;--muted:#6b6b66;--accent:#2f6f5e;--line:#e2e2dc;--today:#fff3c4}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#212120;--text:#eeeeea;--muted:#a0a09a;--accent:#6fc2a8;--line:#35352f;--today:#4a4220}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:640px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.5rem;margin:0 0 16px}
+h2{font-size:1.05rem;margin:24px 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.calhead strong{font-size:1.05rem}
+button{font:inherit;color:inherit;background:none;border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+.dow{font-size:.75rem;color:var(--muted);padding:4px 0}
+.day{position:relative;padding:8px 0;border:1px solid transparent;border-radius:8px;min-height:40px}
+.day.empty{visibility:hidden}
+.day.today{background:var(--today)}
+.day.has{font-weight:700;color:var(--accent);border-color:var(--accent)}
+.day.sel{background:var(--accent);color:#fff;border-color:var(--accent)}
+.day.has::after{content:"";position:absolute;left:50%;bottom:4px;width:5px;height:5px;margin-left:-2.5px;border-radius:50%;background:currentColor}
+.datehead{font-weight:700;margin:18px 0 6px;color:var(--accent)}
+.ev{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.ev.next{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}
+.ev .t{font-weight:600}
+.ev .m{color:var(--muted);font-size:.92rem}
+.ev a{color:var(--accent)}
+.badge{display:inline-block;font-size:.72rem;background:var(--accent);color:#fff;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:middle}
+.note{color:var(--muted);font-size:.9rem}
+details{margin-top:28px}
+summary{cursor:pointer;color:var(--muted)}
+#reset{margin-top:10px;display:none}
+</style>
+</head>
+<body>
+<main>
+<h1>Events in der Umgebung</h1>
+
+<div class="card">
+  <div class="calhead">
+    <button id="prev" aria-label="Vorheriger Monat">&larr;</button>
+    <strong id="monthlabel"></strong>
+    <button id="next" aria-label="Nächster Monat">&rarr;</button>
+  </div>
+  <div class="grid" id="cal"></div>
+  <button id="reset">Alle kommenden Events anzeigen</button>
+</div>
+
+<h2 id="listtitle">Kommende Events</h2>
+<div id="list"></div>
+
+<details id="archive">
+  <summary>Vergangene Events</summary>
+  <div id="past"></div>
+</details>
+
+<p class="note" id="status"></p>
+</main>
+
+<script>
+// ====== EINSTELLUNG ======
+// Hier den "Im Web veröffentlichen"-Link Deiner Google Tabelle (Format CSV) einfügen.
+// Solange das Feld leer ist, werden Beispiel-Events angezeigt.
+const SHEET_CSV_URL = "";
+// =========================
+
+const WD = ["Mo","Di","Mi","Do","Fr","Sa","So"];
+const MONTHS = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+const pad = n => String(n).padStart(2,"0");
+const keyOf = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const today = new Date();
+const todayKey = keyOf(today);
+
+let events = [];
+let view = {y: today.getFullYear(), m: today.getMonth()};
+let sel = null;
+
+function demoEvents(){
+  const mk = (off,time,title,place,link) => {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate()+off);
+    return {key:keyOf(d), time, title, place, link};
+  };
+  return [
+    mk(-3,"19:00","Beispiel: Vergangenes Event","Musterstadt",""),
+    mk(2,"20:00","Beispiel: Konzert im Biergarten","Arnsberg","https://example.org"),
+    mk(5,"11:00","Beispiel: Flohmarkt","Neheim",""),
+    mk(12,"18:30","Beispiel: Stadtfest","Sundern","")
+  ];
+}
+
+function parseCSV(t){
+  const rows=[];let r=[],c="",q=false;
+  for(let i=0;i<t.length;i++){
+    const ch=t[i];
+    if(q){
+      if(ch=='"'){ if(t[i+1]=='"'){c+='"';i++} else q=false }
+      else c+=ch;
+    } else if(ch=='"') q=true;
+    else if(ch==','){ r.push(c); c=""; }
+    else if(ch=='\n'||ch=='\r'){
+      if(ch=='\r'&&t[i+1]=='\n') i++;
+      r.push(c); rows.push(r); r=[]; c="";
+    } else c+=ch;
+  }
+  if(c||r.length){ r.push(c); rows.push(r); }
+  return rows;
+}
+
+function parseDate(s){
+  s=(s||"").trim();
+  let m=s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if(m) return m[3]+"-"+pad(+m[2])+"-"+pad(+m[1]);
+  m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if(m) return m[1]+"-"+pad(+m[2])+"-"+pad(+m[3]);
+  return null;
+}
+
+function safeLink(u){
+  u=(u||"").trim();
+  return /^https?:\/\//i.test(u) ? u : "";
+}
+
+function fromCSV(text){
+  const rows=parseCSV(text);
+  const out=[];
+  // Spalten: Datum, Uhrzeit, Titel, Ort, Link (erste Zeile = Überschriften)
+  for(let i=1;i<rows.length;i++){
+    const r=rows[i];
+    const key=parseDate(r[0]);
+    if(!key || !(r[2]||"").trim()) continue;
+    out.push({key, time:(r[1]||"").trim(), title:r[2].trim(), place:(r[3]||"").trim(), link:safeLink(r[4])});
+  }
+  return out;
+}
+
+function fmtDate(key){
+  const [y,m,d]=key.split("-").map(Number);
+  const dt=new Date(y,m-1,d);
+  const wd=["So","Mo","Di","Mi","Do","Fr","Sa"][dt.getDay()];
+  return wd+", "+d+". "+MONTHS[m-1]+" "+y;
+}
+
+function evNode(e, isNext){
+  const div=document.createElement("div");
+  div.className="ev"+(isNext?" next":"");
+  const t=document.createElement("div"); t.className="t"; t.textContent=e.title;
+  if(isNext){ const b=document.createElement("span"); b.className="badge"; b.textContent="als Nächstes"; t.appendChild(b); }
+  div.appendChild(t);
+  const meta=[e.time,e.place].filter(Boolean).join(" · ");
+  if(meta){ const m=document.createElement("div"); m.className="m"; m.textContent=meta; div.appendChild(m); }
+  if(e.link){
+    const a=document.createElement("a"); a.href=e.link; a.target="_blank"; a.rel="noopener noreferrer"; a.textContent="Zum Event";
+    const m=document.createElement("div"); m.className="m"; m.appendChild(a); div.appendChild(m);
+  }
+  return div;
+}
+
+function renderList(target, list, firstIsNext){
+  target.replaceChildren();
+  let last="", first=true;
+  list.forEach(e=>{
+    if(e.key!==last){
+      const h=document.createElement("div"); h.className="datehead";
+      h.textContent=(e.key===todayKey?"Heute, ":"")+fmtDate(e.key);
+      target.appendChild(h); last=e.key;
+    }
+    target.appendChild(evNode(e, firstIsNext && first));
+    first=false;
+  });
+}
+
+function render(){
+  const sorted=[...events].sort((a,b)=>a.key.localeCompare(b.key)||a.time.localeCompare(b.time));
+  const upcoming=sorted.filter(e=>e.key>=todayKey);
+  const past=sorted.filter(e=>e.key<todayKey).reverse();
+  const list=document.getElementById("list");
+  const title=document.getElementById("listtitle");
+  const reset=document.getElementById("reset");
+
+  if(sel){
+    const day=sorted.filter(e=>e.key===sel);
+    title.textContent="Events am "+fmtDate(sel);
+    reset.style.display="inline-block";
+    renderList(list, day, false);
+    if(!day.length) list.textContent="Keine Events an diesem Tag.";
+  } else {
+    title.textContent="Kommende Events";
+    reset.style.display="none";
+    renderList(list, upcoming, true);
+    if(!upcoming.length) list.textContent="Aktuell sind keine kommenden Events eingetragen.";
+  }
+
+  const pastBox=document.getElementById("past");
+  renderList(pastBox, past, false);
+  document.getElementById("archive").style.display = past.length ? "" : "none";
+  renderCal();
+}
+
+function renderCal(){
+  document.getElementById("monthlabel").textContent=MONTHS[view.m]+" "+view.y;
+  const cal=document.getElementById("cal");
+  cal.replaceChildren();
+  WD.forEach(w=>{ const d=document.createElement("div"); d.className="dow"; d.textContent=w; cal.appendChild(d); });
+  const first=(new Date(view.y,view.m,1).getDay()+6)%7;
+  const days=new Date(view.y,view.m+1,0).getDate();
+  const withEv=new Set(events.map(e=>e.key));
+  for(let i=0;i<first;i++){ const d=document.createElement("div"); d.className="day empty"; cal.appendChild(d); }
+  for(let d=1; d<=days; d++){
+    const key=view.y+"-"+pad(view.m+1)+"-"+pad(d);
+    const btn=document.createElement("button");
+    btn.className="day"+(key===todayKey?" today":"")+(withEv.has(key)?" has":"")+(key===sel?" sel":"");
+    btn.textContent=d;
+    btn.onclick=()=>{ sel=(sel===key?null:key); render(); };
+    cal.appendChild(btn);
+  }
+}
+
+document.getElementById("prev").onclick=()=>{ view.m--; if(view.m<0){view.m=11;view.y--;} renderCal(); };
+document.getElementById("next").onclick=()=>{ view.m++; if(view.m>11){view.m=0;view.y++;} renderCal(); };
+document.getElementById("reset").onclick=()=>{ sel=null; render(); };
+
+async function load(){
+  const status=document.getElementById("status");
+  if(!SHEET_CSV_URL){
+    events=demoEvents();
+    status.textContent="Hinweis: Es werden Beispiel-Events angezeigt. Die Tabelle ist noch nicht verbunden.";
+  } else {
+    try{
+      const res=await fetch(SHEET_CSV_URL,{cache:"no-store"});
+      if(!res.ok) throw new Error(res.status);
+      events=fromCSV(await res.text());
+    }catch(err){
+      status.textContent="Die Events konnten gerade nicht geladen werden. Bitte später erneut versuchen.";
+      events=[];
+    }
+  }
+  render();
+}
+load();
+</script>
+</body>
+</html>
