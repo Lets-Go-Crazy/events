@@ -31,8 +31,8 @@ button:hover{border-color:var(--accent)}
 .ev.next{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}
 .ev .t{font-weight:600}
 .ev .m{color:var(--muted);font-size:.92rem}
-.ev .d{margin-top:6px;white-space:pre-line}
-.ev .p{margin-top:6px;font-size:.92rem}
+.ev .f{margin-top:4px;font-size:.95rem;white-space:pre-line}
+.ev .f strong{color:var(--muted);font-weight:600}
 .ev a{color:var(--accent)}
 .badge{display:inline-block;font-size:.72rem;background:var(--accent);color:#fff;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:middle}
 .note{color:var(--muted);font-size:.9rem}
@@ -146,8 +146,14 @@ function fmtDate(key){
   return wd+", "+d+". "+MONTHS[m-1]+" "+y;
 }
 
-function line(cls, text){
-  const el=document.createElement("div"); el.className=cls; el.textContent=text; return el;
+function field(label, value){
+  const el=document.createElement("div");
+  if(!value){ el.style.display="none"; return el; }
+  el.className="f";
+  const b=document.createElement("strong"); b.textContent=label+": ";
+  el.appendChild(b);
+  el.appendChild(document.createTextNode(value));
+  return el;
 }
 
 function evNode(e, isNext){
@@ -156,17 +162,16 @@ function evNode(e, isNext){
   const t=document.createElement("div"); t.className="t"; t.textContent=e.title;
   if(isNext){ const b=document.createElement("span"); b.className="badge"; b.textContent="als Nächstes"; t.appendChild(b); }
   div.appendChild(t);
-  const meta=[e.time,e.place].filter(Boolean).join(" · ");
-  if(meta) div.appendChild(line("m", meta));
-  if(e.desc) div.appendChild(line("d", e.desc));
-  const prices=[];
-  if(e.pre) prices.push("Vorverkauf: "+e.pre);
-  if(e.door) prices.push("Abendkasse: "+e.door);
-  if(prices.length) div.appendChild(line("p", prices.join(" · ")));
-  if(e.more) div.appendChild(line("m", e.more));
+  div.appendChild(field("Datum", fmtDate(e.key)));
+  div.appendChild(field("Uhrzeit", e.time));
+  div.appendChild(field("Anschrift", e.place));
+  div.appendChild(field("Beschreibung", e.desc));
+  div.appendChild(field("Vorverkauf", e.pre));
+  div.appendChild(field("Abendkasse", e.door));
+  div.appendChild(field("Weitere Infos", e.more));
   if(e.link){
     const a=document.createElement("a"); a.href=e.link; a.target="_blank"; a.rel="noopener noreferrer"; a.textContent="Zum Event";
-    const m=document.createElement("div"); m.className="m"; m.appendChild(a); div.appendChild(m);
+    const m=document.createElement("div"); m.className="f"; m.appendChild(a); div.appendChild(m);
   }
   return div;
 }
