@@ -31,6 +31,8 @@ button:hover{border-color:var(--accent)}
 .ev.next{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}
 .ev .t{font-weight:600}
 .ev .m{color:var(--muted);font-size:.92rem}
+.ev .d{margin-top:6px;white-space:pre-line}
+.ev .p{margin-top:6px;font-size:.92rem}
 .ev a{color:var(--accent)}
 .badge{display:inline-block;font-size:.72rem;background:var(--accent);color:#fff;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:middle}
 .note{color:var(--muted);font-size:.9rem}
@@ -66,9 +68,9 @@ summary{cursor:pointer;color:var(--muted)}
 
 <script>
 // ====== EINSTELLUNG ======
-// Hier den "Im Web veröffentlichen"-Link Deiner Google Tabelle (Format CSV) einfügen.
-// Solange das Feld leer ist, werden Beispiel-Events angezeigt.
-const SHEET_CSV_URL = "";
+// Link der veröffentlichten Google Tabelle (CSV).
+// Spalten: Datum, Uhrzeit, Titel, Beschreibung, Anschrift, Vorverkauf, Abendkasse, Weitere Infos, Link
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSrk0P4xxzlatjWlIJEPfvpySq9OOc2yKVwZfs1PeP7bxFJ7K7ntoRhRItXaoHx19hFkMIKSo-NWEPW/pub?output=csv";
 // =========================
 
 const WD = ["Mo","Di","Mi","Do","Fr","Sa","So"];
@@ -83,15 +85,12 @@ let view = {y: today.getFullYear(), m: today.getMonth()};
 let sel = null;
 
 function demoEvents(){
-  const mk = (off,time,title,place,link) => {
+  const mk = (off,time,title,desc,place,pre,door,more,link) => {
     const d = new Date(today.getFullYear(), today.getMonth(), today.getDate()+off);
-    return {key:keyOf(d), time, title, place, link};
+    return {key:keyOf(d), time, title, desc, place, pre, door, more, link};
   };
   return [
-    mk(-3,"19:00","Beispiel: Vergangenes Event","Musterstadt",""),
-    mk(2,"20:00","Beispiel: Konzert im Biergarten","Arnsberg","https://example.org"),
-    mk(5,"11:00","Beispiel: Flohmarkt","Neheim",""),
-    mk(12,"18:30","Beispiel: Stadtfest","Sundern","")
+    mk(2,"20:00 Uhr","Beispiel: Konzert im Biergarten","Live-Musik unter freiem Himmel.","Musterstraße 1, Arnsberg","10 €","12 €","Einlass ab 19:00 Uhr","https://example.org")
   ];
 }
 
@@ -130,12 +129,12 @@ function safeLink(u){
 function fromCSV(text){
   const rows=parseCSV(text);
   const out=[];
-  // Spalten: Datum, Uhrzeit, Titel, Ort, Link (erste Zeile = Überschriften)
+  const g=(r,i)=>(r[i]||"").trim();
   for(let i=1;i<rows.length;i++){
     const r=rows[i];
     const key=parseDate(r[0]);
-    if(!key || !(r[2]||"").trim()) continue;
-    out.push({key, time:(r[1]||"").trim(), title:r[2].trim(), place:(r[3]||"").trim(), link:safeLink(r[4])});
+    if(!key || !g(r,2)) continue;
+    out.push({key, time:g(r,1), title:g(r,2), desc:g(r,3), place:g(r,4), pre:g(r,5), door:g(r,6), more:g(r,7), link:safeLink(r[8])});
   }
   return out;
 }
@@ -147,6 +146,10 @@ function fmtDate(key){
   return wd+", "+d+". "+MONTHS[m-1]+" "+y;
 }
 
+function line(cls, text){
+  const el=document.createElement("div"); el.className=cls; el.textContent=text; return el;
+}
+
 function evNode(e, isNext){
   const div=document.createElement("div");
   div.className="ev"+(isNext?" next":"");
@@ -154,7 +157,13 @@ function evNode(e, isNext){
   if(isNext){ const b=document.createElement("span"); b.className="badge"; b.textContent="als Nächstes"; t.appendChild(b); }
   div.appendChild(t);
   const meta=[e.time,e.place].filter(Boolean).join(" · ");
-  if(meta){ const m=document.createElement("div"); m.className="m"; m.textContent=meta; div.appendChild(m); }
+  if(meta) div.appendChild(line("m", meta));
+  if(e.desc) div.appendChild(line("d", e.desc));
+  const prices=[];
+  if(e.pre) prices.push("Vorverkauf: "+e.pre);
+  if(e.door) prices.push("Abendkasse: "+e.door);
+  if(prices.length) div.appendChild(line("p", prices.join(" · ")));
+  if(e.more) div.appendChild(line("m", e.more));
   if(e.link){
     const a=document.createElement("a"); a.href=e.link; a.target="_blank"; a.rel="noopener noreferrer"; a.textContent="Zum Event";
     const m=document.createElement("div"); m.className="m"; m.appendChild(a); div.appendChild(m);
